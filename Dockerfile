@@ -14,6 +14,14 @@ COPY ./src ./src
 RUN cargo build --release
 
 FROM scratch
+# # FROM alpine:3.18.3
+
+# #RUN apk add --no-cache libgcc musl libc6-compat libressl-dev libcrypto1.1
+# FROM debian:bullseye-slim
+
+# RUN apt-get update && apt-get install -y --no-install-recommends libgcc1 libstdc++6
+# RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /sfu/target/release/sfu /sfu
 ENTRYPOINT ["/sfu"]
 EXPOSE 3000
