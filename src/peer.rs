@@ -25,8 +25,18 @@ use tokio::sync::mpsc;
 // sent by clients
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Client2Server {
-	CreateRtcTransport { produce: bool, consume: bool },
-	Join { rtp_caps: RtpCapabilities },
+	CreateRtcTransport {
+		force_tcp: Option<bool>,
+		produce: bool,
+		consume: bool,
+	},
+	ConnectRtcTransport {
+		id: TransportId,
+		dtls_params: DtlsParameters,
+	},
+	Join {
+		rtp_caps: RtpCapabilities,
+	},
 }
 
 // sent or relayed by the server
@@ -214,7 +224,7 @@ async fn run_loop(
 					break;
 				}
 				PeerEvent::OnJoin { others } => {
-					tracing::debug!("{user_id} on join.");
+					tracing::debug!("{user_id} on join");
 					_ = sender.send(&Server2Client::OnJoin { others }).await;
 				}
 				PeerEvent::NewPeerJoined { user_id } => {
@@ -297,15 +307,28 @@ async fn run_loop(
 					tracing::debug!("received msg: {:?}", msg);
 
 					match msg {
-						Client2Server::CreateRtcTransport { produce, consume } => {
+						Client2Server::CreateRtcTransport {
+							force_tcp,
+							produce,
+							consume,
+						} => {
 							_ = room_tx
-								.send(room::Event::CreateRtpTransport {
+								.send(room::Event::CreateRtcTransport {
 									user_id,
+									force_tcp,
 									produce,
 									consume,
 								})
 								.await;
-							// send a reply to the client
+						}
+						Client2Server::ConnectRtcTransport { id, dtls_params } => {
+							_ = room_tx
+								.send(room::Event::ConnectRtcTransport {
+									user_id,
+									transport_id: id,
+									dtls_params,
+								})
+								.await;
 						}
 						Client2Server::Join { rtp_caps } => {
 							_ = room_tx.send(room::Event::Join { user_id, rtp_caps }).await;

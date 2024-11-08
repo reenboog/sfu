@@ -6,8 +6,8 @@ use crate::{
 };
 use mediasoup::{
 	prelude::{
-		ConsumerId, ConsumerOptions, ProducerId, RtpCapabilities, Transport,
-		WebRtcServer, WebRtcTransportOptions,
+		ConsumerId, ConsumerOptions, DtlsParameters, ProducerId, RtpCapabilities, Transport,
+		TransportId, WebRtcServer, WebRtcTransportOptions, WebRtcTransportRemoteParameters,
 	},
 	router::Router,
 };
@@ -22,10 +22,16 @@ pub enum Event {
 		user_id: Uid,
 		rtp_caps: RtpCapabilities,
 	},
-	CreateRtpTransport {
+	CreateRtcTransport {
 		user_id: Uid,
+		force_tcp: Option<bool>,
 		produce: bool,
 		consume: bool,
+	},
+	ConnectRtcTransport {
+		user_id: Uid,
+		transport_id: TransportId,
+		dtls_params: DtlsParameters,
 	},
 	OnConsumerTransportClose {
 		user_id: Uid,
@@ -193,7 +199,7 @@ pub async fn create_and_start_receiving(
 
 				if let Some(peer) = peers.get_mut(&user_id) {
 					if peer.joined {
-						tracing::error!("{user_id} has already joined; something is messed up");
+						tracing::error!("{user_id} has already joined");
 					} else {
 						peer.joined = true;
 						peer.rtp_caps = Some(rtp_caps);
@@ -231,18 +237,21 @@ pub async fn create_and_start_receiving(
 					tracing::error!("{user_id} is trying to join, but does not belong to {id}");
 				}
 			}
-			Event::CreateRtpTransport {
+			Event::CreateRtcTransport {
 				user_id,
+				force_tcp,
 				produce,
 				consume,
 			} => {
 				if let Some(peer) = peers.get_mut(&user_id) {
-					let transport = router
-						.create_webrtc_transport(WebRtcTransportOptions::new_with_server(
-							rtc_server.clone(),
-						))
-						.await
-						.unwrap();
+					let mut options = WebRtcTransportOptions::new_with_server(rtc_server.clone());
+
+					if force_tcp.unwrap_or(false) {
+						options.enable_udp = false;
+						options.enable_tcp = true;
+					}
+
+					let transport = router.create_webrtc_transport(options).await.unwrap();
 
 					let tid = transport.id();
 					let ice_candidates = transport.ice_candidates().clone();
@@ -258,7 +267,8 @@ pub async fn create_and_start_receiving(
 						},
 					);
 
-					// FIXME: implement on_* callbacks
+					// TODO: implement dtlsstatechange, trace: ui/logging mostly
+					// transport.enable_trace_event(vec![Bwe]);
 
 					_ = peer
 						.tx
@@ -269,6 +279,26 @@ pub async fn create_and_start_receiving(
 							dtls_params,
 						})
 						.await;
+				} else {
+					tracing::error!("create rtc transport failed: no user {user_id} found");
+				}
+			}
+			Event::ConnectRtcTransport {
+				user_id,
+				transport_id,
+				dtls_params,
+			} => {
+				if let Some(peer) = peers.get_mut(&user_id) {
+					if let Some(transport) = peer.transports.get_mut(&transport_id) {
+						_ = transport
+							.transport
+							.connect(WebRtcTransportRemoteParameters {
+								dtls_parameters: dtls_params,
+							})
+							.await;
+					} else {
+						tracing::error!("no transport {transport_id} found for {user_id}");
+					}
 				}
 			}
 			Event::OnConsumerTransportClose {
