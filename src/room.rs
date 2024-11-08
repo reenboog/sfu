@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use crate::{
-	peer::{self, Peer, PeerTransport},
+	peer::{self, Peer, PeerProducer, PeerTransport},
 	uid::Uid,
 };
 use mediasoup::{
 	prelude::{
-		ConsumerId, ConsumerOptions, DtlsParameters, ProducerId, RtpCapabilities, Transport,
-		TransportId, WebRtcServer, WebRtcTransportOptions, WebRtcTransportRemoteParameters,
+		ConsumerId, ConsumerOptions, DtlsParameters, MediaKind, ProducerId, ProducerOptions,
+		RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
+		WebRtcTransportOptions, WebRtcTransportRemoteParameters,
 	},
 	router::Router,
 };
@@ -21,6 +22,13 @@ pub enum Event {
 	Join {
 		user_id: Uid,
 		rtp_caps: RtpCapabilities,
+	},
+	Produce {
+		user_id: Uid,
+		transport_id: TransportId,
+		kind: MediaKind,
+		rtp_params: RtpParameters,
+		is_share: bool,
 	},
 	CreateRtcTransport {
 		user_id: Uid,
@@ -81,7 +89,7 @@ async fn create_consumer(
 			{
 				let mut options = ConsumerOptions::new(producer_id.clone(), caps.clone());
 				options.paused = true;
-				// FIXME: check whether a default value is enough
+				// FIXME: check whether default value is enough
 				// true is for opus NACKs
 				// options.enable_rtx = Some(true);
 
@@ -239,6 +247,47 @@ pub async fn create_and_start_receiving(
 					}
 				} else {
 					tracing::error!("{user_id} is trying to join, but does not belong to {id}");
+				}
+			}
+			Event::Produce {
+				user_id,
+				transport_id,
+				kind,
+				rtp_params,
+				is_share,
+			} => {
+				let mut others = peers.joined_excluding(user_id);
+
+				if let Some(peer) = peers.get_mut(&user_id) {
+					if peer.joined {
+						if let Some(transport) = peer.transports.get_mut(&transport_id) {
+							let options = ProducerOptions::new(kind, rtp_params);
+							if let Ok(producer) = transport.transport.produce(options).await {
+								let pid = producer.id();
+
+								peer.producers
+									.insert(pid, PeerProducer { producer, is_share });
+
+								_ = peer
+									.tx
+									.send(peer::PeerEvent::OnNewProducer { id: pid })
+									.await;
+
+								for (_, other) in others.iter_mut() {
+									create_consumer(other, &user_id, &pid, is_share, &router).await;
+								}
+
+								// TODO: implement score, videoorientationchange, trace
+								// TODO: if audio, implement audio lever/active speaker observers
+							} else {
+								tracing::error!("failed to create a producer for user {user_id} on transport {transport_id}");
+							}
+						} else {
+							tracing::error!("no transport {transport_id} found for {user_id}");
+						}
+					} else {
+						tracing::error!("{user_id} has not yet joined, but trying to produce on transport {transport_id}");
+					}
 				}
 			}
 			Event::CreateRtcTransport {

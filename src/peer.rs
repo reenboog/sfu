@@ -40,6 +40,12 @@ pub enum Client2Server {
 	Join {
 		rtp_caps: RtpCapabilities,
 	},
+	Produce {
+		transport_id: TransportId,
+		kind: MediaKind,
+		rtp_params: RtpParameters,
+		is_share: bool,
+	},
 }
 
 // sent or relayed by the server
@@ -69,6 +75,9 @@ pub enum Server2Client {
 		consumer_type: ConsumerType,
 		producer_paused: bool,
 		is_share: bool,
+	},
+	OnNewProducer {
+		id: ProducerId,
 	},
 	ConsumerClosed {
 		consumer_id: ConsumerId,
@@ -109,6 +118,9 @@ pub enum PeerEvent {
 		consumer_type: ConsumerType,
 		producer_paused: bool,
 		is_share: bool,
+	},
+	OnNewProducer {
+		id: ProducerId,
 	},
 	// FIXME: send directly to the room?
 	OnConsumerTransportClose {
@@ -159,6 +171,7 @@ impl SigSender for WsSigSender {
 #[derive(Clone)]
 pub struct PeerTransport {
 	pub transport: WebRtcTransport,
+	// FIXME: do I need this?
 	pub produce: bool,
 	pub consume: bool,
 }
@@ -235,6 +248,9 @@ async fn run_loop(
 				PeerEvent::OnJoin { others } => {
 					tracing::debug!("{user_id} on join");
 					_ = sender.send(&Server2Client::OnJoin { others }).await;
+				}
+				PeerEvent::OnNewProducer { id } => {
+					_ = sender.send(&Server2Client::OnNewProducer { id }).await;
 				}
 				PeerEvent::NewPeerJoined { user_id } => {
 					_ = sender.send(&Server2Client::NewPeerJoined { user_id }).await;
@@ -355,6 +371,22 @@ async fn run_loop(
 						}
 						Client2Server::Join { rtp_caps } => {
 							_ = room_tx.send(room::Event::Join { user_id, rtp_caps }).await;
+						}
+						Client2Server::Produce {
+							transport_id,
+							kind,
+							rtp_params,
+							is_share,
+						} => {
+							_ = room_tx
+								.send(room::Event::Produce {
+									user_id,
+									transport_id,
+									kind,
+									rtp_params,
+									is_share,
+								})
+								.await;
 						}
 					}
 				}
