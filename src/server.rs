@@ -1,35 +1,60 @@
-use std::collections::HashMap;
+use std::{
+	collections::HashMap,
+	net::IpAddr,
+	num::{NonZeroU32, NonZeroU8},
+};
 
 use mediasoup::{
 	prelude::{
-		ListenInfo, Protocol, WebRtcServer, WebRtcServerListenInfos, WebRtcServerOptions,
-		WorkerManager,
+		AppData, ListenInfo, MimeTypeAudio, MimeTypeVideo, Protocol, RtcpFeedback,
+		RtpCodecCapability, RtpCodecParametersParameters, Transport, WebRtcServer,
+		WebRtcServerListenInfos, WebRtcServerOptions, WebRtcTransportOptions, WorkerManager,
 	},
-	router::Router,
-	worker::{Worker, WorkerSettings},
+	router::{Router, RouterOptions},
+	worker::{Worker, WorkerLogLevel, WorkerSettings},
 };
+use tokio::sync::mpsc;
 
-use crate::{room::Room, uid::Uid};
+use crate::{room, uid::Uid};
 
 #[derive(Debug)]
 pub enum Error {
 	Unknown,
+	Worker,
+	RtcServer,
 	RoomExists(Uid),
 }
 
 pub struct Server {
 	mngr: WorkerManager,
-	workers: Vec<Worker>,
+	workers: Vec<(Worker, WebRtcServer)>,
 	nex_worker_idx: usize,
 
 	// FIXME: replace with WeakRoom to allow self-destruction when the last participant leaves
-	rooms: HashMap<Uid, Room>,
+	// keep event_tx instead?
+	rooms: HashMap<Uid, mpsc::Sender<room::Event>>,
 }
 
 impl Server {
-	pub async fn new(num_workers: usize) -> Result<Self, Error> {
+	pub async fn new(
+		num_workers: usize,
+		local_ip: IpAddr,
+		announced_ip: &str,
+		worker_min_port: u16,
+		worker_max_port: u16,
+		server_port: u16,
+	) -> Result<Self, Error> {
 		let mngr = WorkerManager::new();
-		let workers = Self::create_workers(&mngr, num_workers).await?;
+		let workers = Self::create_workers(
+			&mngr,
+			num_workers,
+			local_ip,
+			announced_ip,
+			worker_min_port,
+			worker_max_port,
+			server_port,
+		)
+		.await?;
 
 		Ok(Self {
 			mngr,
@@ -43,110 +68,127 @@ impl Server {
 	async fn create_workers(
 		mngr: &WorkerManager,
 		num_workers: usize,
-	) -> Result<Vec<Worker>, Error> {
+		local_ip: IpAddr,
+		announced_ip: &str,
+		worker_min_port: u16,
+		worker_max_port: u16,
+		server_port: u16,
+	) -> Result<Vec<(Worker, WebRtcServer)>, Error> {
 		let mut workers = Vec::new();
-		// FIXME: respect tdls certificate & key
-		// FIXME: respect min & max ports
-		// FIXME: user WebRtcServer
 
-		// webRtcServerOptions :
-		// {
-		// 	listenInfos :
-		// 	[
-		// 		{
-		// 			protocol    : 'udp',
-		// 			ip          : process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0',
-		// 			announcedIp : process.env.MEDIASOUP_ANNOUNCED_IP,
-		// 			port        : 44444
-		// 		},
-		// 		{
-		// 			protocol    : 'tcp',
-		// 			ip          : process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0',
-		// 			announcedIp : process.env.MEDIASOUP_ANNOUNCED_IP,
-		// 			port        : 44444
-		// 		}
-		// 	]
-		// },
+		for worker_idx in 0..num_workers {
+			let mut worker_settings = WorkerSettings::default();
+			// TODO: apply certs?
+			worker_settings.rtc_port_range = worker_min_port..=worker_max_port;
 
-		for _ in 0..num_workers {
 			let worker = mngr
-				.create_worker(WorkerSettings::default())
+				.create_worker(worker_settings)
 				.await
-				.map_err(|_| Error::Unknown)?;
+				.map_err(|_| Error::Worker)?;
 
 			let info = ListenInfo {
 				protocol: Protocol::Udp,
-				ip: todo!(),
-				announced_address: todo!(),
-				port: todo!(),
-				port_range: todo!(),
-				flags: todo!(),
-				send_buffer_size: todo!(),
-				recv_buffer_size: todo!(),
+				ip: local_ip,
+				announced_address: Some(announced_ip.to_string()),
+				port: Some(server_port + worker_idx as u16),
+				port_range: Some(worker_min_port..=worker_max_port),
+				flags: None,
+				send_buffer_size: None,
+				recv_buffer_size: None,
 			};
 			let listen_infos = WebRtcServerListenInfos::new(info);
 			let options = WebRtcServerOptions::new(listen_infos);
 			let server = worker
 				.create_webrtc_server(options)
 				.await
-				.map_err(|_| Error::Unknown)?;
+				.map_err(|_| Error::RtcServer)?;
 
-			workers.push(worker);
+			workers.push((worker, server));
 		}
 
 		Ok(workers)
 	}
 
 	// round-robins to evenly distribute rooms across the workers
-	fn get_next_worker(&mut self) -> &Worker {
-		let worker = &self.workers[self.nex_worker_idx];
+	fn get_next_worker(&mut self) -> (Worker, WebRtcServer) {
+		// both, Worker and WebRtcServer are just arc, so we're good to clone
+		let worker = self.workers[self.nex_worker_idx].clone();
 
 		self.nex_worker_idx = (self.nex_worker_idx + 1) % self.workers.len();
 
 		worker
 	}
 
-	pub fn create_room(&mut self) -> Room {
-		Room::new(self.get_next_worker(), Uid::generate())
+	pub fn get_room(&self, id: Uid) -> Option<&mpsc::Sender<room::Event>> {
+		self.rooms.get(&id)
 	}
 
-	pub fn run(&self) {
-		println!("workers: {}", self.workers.len());
-		// FIXME: room.on('close', () => rooms.delete(roomId));
+	pub async fn create_room(&mut self) -> mpsc::Sender<room::Event> {
+		let (event_tx, event_rx) = mpsc::channel(1024);
+		let id = Uid::generate();
+
+		self.rooms.insert(id, event_tx.clone());
+
+		let (worker, rtc_server) = self.get_next_worker();
+		let router = worker
+			.create_router(RouterOptions::new(media_codecs()))
+			.await
+			.unwrap();
+
+		tokio::spawn(room::create_and_start_receiving(
+			id, router, rtc_server, event_rx,
+		));
+
+		event_tx
 	}
+	// 	let (worker, server) = self.get_next_worker();
+
+	// 	Room::new(worker, server, Uid::generate());
+	// 	// Room::new(worker, server, Uid::generate())
+	// 	todo!()
+	// }
+
+	// pub fn run(&self) {
+	// 	tracing::info!("workers: {}", self.workers.len());
+	// 	// FIXME: room.on('close', () => rooms.delete(roomId));
+	// }
 }
 
-// this is for ws only
-
-// fn load_rustls_config() -> rustls::ServerConfig {
-// 	rustls::crypto::aws_lc_rs::default_provider()
-// 			.install_default()
-// 			.unwrap();
-
-// 	// let key = "/etc/letsencrypt/live/p2q.live/privkey.pem";
-// 	// let cert = "/etc/letsencrypt/live/p2q.live/fullchain.pem";
-// 	let key = "/home/admin/proj/sfu/mediasoup/certs/privkey.pem";
-// 	let cert = "/home/admin/proj/sfu/mediasoup/certs/fullchain.pem";
-
-// 	// init server config builder with safe defaults
-// 	let config = ServerConfig::builder().with_no_client_auth();
-
-// 	// load TLS key/cert files
-// 	let key_file = &mut BufReader::new(File::open(key).unwrap());
-// 	let cert_file = &mut BufReader::new(File::open(cert).unwrap());
-
-// 	// convert files to key/cert objects
-// 	let cert_chain = certs(cert_file).collect::<Result<Vec<_>, _>>().unwrap();
-// 	let mut keys = pkcs8_private_keys(key_file)
-// 			.map(|key| key.map(PrivateKeyDer::Pkcs8))
-// 			.collect::<Result<Vec<_>, _>>()
-// 			.unwrap();
-
-// 	// exit if no keys could be parsed
-// 	if keys.is_empty() {
-// 			eprintln!("Could not locate PKCS 8 private keys.");
-// 			std::process::exit(1);
-// 	}
-
-// 	config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
-// }
+fn media_codecs() -> Vec<RtpCodecCapability> {
+	vec![
+		RtpCodecCapability::Audio {
+			mime_type: MimeTypeAudio::Opus,
+			preferred_payload_type: None,
+			clock_rate: NonZeroU32::new(48000).unwrap(),
+			channels: NonZeroU8::new(2).unwrap(),
+			parameters: RtpCodecParametersParameters::from([("useinbandfec", 1_u32.into())]),
+			rtcp_feedback: vec![RtcpFeedback::TransportCc],
+		},
+		RtpCodecCapability::Video {
+			mime_type: MimeTypeVideo::Vp8,
+			preferred_payload_type: None,
+			clock_rate: NonZeroU32::new(90000).unwrap(),
+			parameters: RtpCodecParametersParameters::default(),
+			rtcp_feedback: vec![
+				RtcpFeedback::Nack,
+				RtcpFeedback::NackPli,
+				RtcpFeedback::CcmFir,
+				RtcpFeedback::GoogRemb,
+				RtcpFeedback::TransportCc,
+			],
+		},
+		RtpCodecCapability::Video {
+			mime_type: MimeTypeVideo::Vp9,
+			preferred_payload_type: None,
+			clock_rate: NonZeroU32::new(90000).unwrap(),
+			parameters: RtpCodecParametersParameters::default(),
+			rtcp_feedback: vec![
+				RtcpFeedback::Nack,
+				RtcpFeedback::NackPli,
+				RtcpFeedback::CcmFir,
+				RtcpFeedback::GoogRemb,
+				RtcpFeedback::TransportCc,
+			],
+		},
+	]
+}

@@ -1,0 +1,4 @@
+- when a call is initiated, create producers and consumers in advance?
+- consider using Weak types
+
+TODO: introduce aithentication
