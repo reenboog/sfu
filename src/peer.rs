@@ -34,6 +34,9 @@ pub enum Client2Server {
 		id: TransportId,
 		dtls_params: DtlsParameters,
 	},
+	RestartIce {
+		transport_id: TransportId,
+	},
 	Join {
 		rtp_caps: RtpCapabilities,
 	},
@@ -77,6 +80,9 @@ pub enum Server2Client {
 	},
 	ConsumerResumed {
 		consumer_id: ConsumerId,
+	},
+	IceRestarted {
+		ice_params: IceParameters,
 	},
 }
 
@@ -125,7 +131,9 @@ pub enum PeerEvent {
 		ice_params: IceParameters,
 		dtls_params: DtlsParameters,
 	},
-
+	IceRestarted {
+		ice_params: IceParameters,
+	},
 	Close,
 }
 
@@ -214,6 +222,7 @@ async fn run_loop(
 	tokio::spawn(async move {
 		while let Some(event) = rx.recv().await {
 			match event {
+				// these are system events, either sent by the room or socket
 				PeerEvent::Welcome { rtp_caps } => {
 					_ = sender.send(&Server2Client::Welcome { rtp_caps }).await;
 				}
@@ -268,6 +277,11 @@ async fn run_loop(
 						})
 						.await;
 				}
+				PeerEvent::IceRestarted { ice_params } => {
+					_ = sender
+						.send(&Server2Client::IceRestarted { ice_params })
+						.await;
+				}
 				PeerEvent::OnConsumerTransportClose { consumer_id } => {
 					_ = room_tx
 						.send(room::Event::OnConsumerTransportClose {
@@ -303,6 +317,7 @@ async fn run_loop(
 						.send(&Server2Client::ConsumerResumed { consumer_id })
 						.await;
 				}
+				// these come from wire
 				PeerEvent::Rcvd(msg) => {
 					tracing::debug!("received msg: {:?}", msg);
 
@@ -327,6 +342,14 @@ async fn run_loop(
 									user_id,
 									transport_id: id,
 									dtls_params,
+								})
+								.await;
+						}
+						Client2Server::RestartIce { transport_id } => {
+							_ = room_tx
+								.send(room::Event::RestartIce {
+									user_id,
+									transport_id,
 								})
 								.await;
 						}
@@ -395,69 +418,3 @@ pub enum Error {
 	Socket,
 	ConnectionClosed,
 }
-
-// type SignallingImpl = Wsockets;
-
-// pub struct WsSender {
-// 	pub sender: SplitSink<WebSocket, ws::Message>,
-// 	// pub receiver: SplitStream<WebSocket>,
-// }
-
-// #[async_trait]
-// pub trait SigSender {
-// 	async fn send(&mut self, buf: &str) -> Result<(), Error>;
-// }
-
-// #[async_trait]
-// impl SigSender for WsSender {
-// 	async fn send(&mut self, buf: &str) -> Result<(), Error> {
-// 		Ok(self
-// 			.sender
-// 			.send(ws::Message::Text(buf.to_string()))
-// 			.await
-// 			.map_err(|_| Error::Socket)?)
-// 	}
-// }
-
-// async fn process_ws_message(
-// 	msg: ws::Message,
-// 	who: SocketAddr,
-// 	peer: &Peer,
-// ) -> ControlFlow<(), ()> {
-// 	use ws::Message::*;
-
-// 	match msg {
-// 		Text(t) => {
-// 			// json encoded
-// 			tracing::debug!("{} @ {} sent str: {t:?}", peer.id.to_base64(), who);
-
-// 			if let Ok(msg) = serde_json::from_str::<peer::Client2Server>(&t) {
-// 				// handle errors somehow?
-// 				// let r = peer.receive(msg);
-// 			}
-// 		}
-// 		Close(c) => {
-// 			// room close
-// 			// server close room, if empty
-// 			// state
-// 			peer.close().await;
-
-// 			if let Some(cf) = c {
-// 				tracing::warn!(
-// 					">>> {} sent close with code {} and reason `{}`",
-// 					who,
-// 					cf.code,
-// 					cf.reason
-// 				);
-// 			} else {
-// 				tracing::warn!(">>> {who} somehow sent close message without CloseFrame");
-// 			}
-// 			return ControlFlow::Break(());
-// 		}
-
-// 		msg => {
-// 			tracing::error!("Received unexpected {:?}.", msg);
-// 		}
-// 	}
-// 	ControlFlow::Continue(())
-// }

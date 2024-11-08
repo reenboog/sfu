@@ -33,6 +33,10 @@ pub enum Event {
 		transport_id: TransportId,
 		dtls_params: DtlsParameters,
 	},
+	RestartIce {
+		user_id: Uid,
+		transport_id: TransportId,
+	},
 	OnConsumerTransportClose {
 		user_id: Uid,
 		consumer_id: ConsumerId,
@@ -298,6 +302,23 @@ pub async fn create_and_start_receiving(
 							.await;
 					} else {
 						tracing::error!("no transport {transport_id} found for {user_id}");
+					}
+				}
+			}
+			Event::RestartIce {
+				user_id,
+				transport_id,
+			} => {
+				if let Some(peer) = peers.get_mut(&user_id) {
+					if let Some(transport) = peer.transports.get_mut(&transport_id) {
+						if let Ok(ice_params) = transport.transport.restart_ice().await {
+							_ = peer
+								.tx
+								.send(peer::PeerEvent::IceRestarted { ice_params })
+								.await
+						} else {
+							tracing::error!("failed to restart ice for transport {transport_id} found for {user_id}");
+						}
 					}
 				}
 			}
