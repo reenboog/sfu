@@ -57,6 +57,10 @@ pub enum Event {
 		producer_peer_id: Uid,
 		id: ProducerId,
 	},
+	PauseProducer {
+		producer_peer_id: Uid,
+		id: ProducerId,
+	},
 	Leave {
 		user_id: Uid,
 	},
@@ -384,6 +388,20 @@ pub async fn create_and_start_receiving(
 						// just drop to close
 						// this will trigger on_producer_close for each of this producer's consumers
 						tracing::debug!("closed producer {id} on {producer_peer_id}");
+					} else {
+						tracing::error!("no producer {id} found for user {producer_peer_id}");
+					}
+				}
+			}
+			Event::PauseProducer {
+				producer_peer_id,
+				id,
+			} => {
+				if let Some(peer) = peers.get_mut(&producer_peer_id) {
+					if let Some(producer) = peer.producers.get_mut(&id) {
+						if producer.producer.pause().await.is_err() {
+							tracing::debug!("failed to pause producer {id} on {producer_peer_id}");
+						}
 					} else {
 						tracing::error!("no producer {id} found for user {producer_peer_id}");
 					}

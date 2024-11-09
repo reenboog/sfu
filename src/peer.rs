@@ -49,6 +49,9 @@ pub enum Client2Server {
 	CloseProducer {
 		id: ProducerId,
 	},
+	PauseProducer {
+		id: ProducerId,
+	},
 }
 
 // sent or relayed by the server
@@ -395,6 +398,14 @@ async fn run_loop(
 						Client2Server::CloseProducer { id } => {
 							_ = room_tx
 								.send(room::Event::CloseProducer {
+									producer_peer_id: user_id,
+									id,
+								})
+								.await;
+						}
+						Client2Server::PauseProducer { id } => {
+							_ = room_tx
+								.send(room::Event::PauseProducer {
 									producer_peer_id: user_id,
 									id,
 								})
