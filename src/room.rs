@@ -80,6 +80,11 @@ pub enum Event {
 		spatial: u8,
 		temporal: u8,
 	},
+	SetConsumerPriority {
+		user_id: Uid,
+		consumer_id: ConsumerId,
+		priority: u8,
+	},
 	Leave {
 		user_id: Uid,
 	},
@@ -476,15 +481,29 @@ pub async fn create_and_start_receiving(
 			} => {
 				if let Some(peer) = peers.get_mut(&user_id) {
 					if let Some(consumer) = peer.consumers.get_mut(&consumer_id) {
-						if peer.joined && consumer
-							.set_preferred_layers(ConsumerLayers {
-								spatial_layer: spatial,
-								temporal_layer: Some(temporal),
-							})
-							.await
-							.is_ok()
+						if peer.joined
+							&& consumer
+								.set_preferred_layers(ConsumerLayers {
+									spatial_layer: spatial,
+									temporal_layer: Some(temporal),
+								})
+								.await
+								.is_ok()
 						{
 							tracing::debug!("set layers on consumer {consumer_id} for user {user_id}; s: {spatial}, t: {temporal}");
+						}
+					}
+				}
+			}
+			Event::SetConsumerPriority {
+				user_id,
+				consumer_id,
+				priority,
+			} => {
+				if let Some(peer) = peers.get_mut(&user_id) {
+					if let Some(consumer) = peer.consumers.get_mut(&consumer_id) {
+						if peer.joined && consumer.set_priority(priority).await.is_ok() {
+							tracing::debug!("set priority {priority} on consumer {consumer_id} for user {user_id}");
 						}
 					}
 				}

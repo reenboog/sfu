@@ -66,6 +66,10 @@ pub enum Client2Server {
 		spatial: u8,
 		temporal: u8,
 	},
+	SetConsumerPriority {
+		consumer_id: ConsumerId,
+		priority: u8,
+	},
 }
 
 // sent or relayed by the server
@@ -460,6 +464,18 @@ async fn run_loop(
 									consumer_id,
 									spatial,
 									temporal,
+								})
+								.await;
+						}
+						Client2Server::SetConsumerPriority {
+							consumer_id,
+							priority,
+						} => {
+							_ = room_tx
+								.send(room::Event::SetConsumerPriority {
+									user_id,
+									consumer_id,
+									priority,
 								})
 								.await;
 						}
