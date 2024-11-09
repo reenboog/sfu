@@ -50,8 +50,12 @@ pub enum Event {
 		consumer_id: ConsumerId,
 	},
 	OnProducerClose {
-		user_id: Uid,
+		consumer_peer_id: Uid,
 		consumer_id: ConsumerId,
+	},
+	CloseProducer {
+		producer_peer_id: Uid,
+		id: ProducerId,
 	},
 	Leave {
 		user_id: Uid,
@@ -371,6 +375,20 @@ pub async fn create_and_start_receiving(
 					}
 				}
 			}
+			Event::CloseProducer {
+				producer_peer_id,
+				id,
+			} => {
+				if let Some(peer) = peers.get_mut(&producer_peer_id) {
+					if peer.producers.remove(&id).is_some() {
+						// just drop to close
+						// this will trigger on_producer_close for each of this producer's consumers
+						tracing::debug!("closed producer {id} on {producer_peer_id}");
+					} else {
+						tracing::error!("no producer {id} found for user {producer_peer_id}");
+					}
+				}
+			}
 			Event::OnConsumerTransportClose {
 				user_id,
 				consumer_id,
@@ -380,10 +398,11 @@ pub async fn create_and_start_receiving(
 				}
 			}
 			Event::OnProducerClose {
-				user_id,
+				consumer_peer_id,
 				consumer_id,
 			} => {
-				if let Some(peer) = peers.get_mut(&user_id) {
+				// FIXME: this is confusing
+				if let Some(peer) = peers.get_mut(&consumer_peer_id) {
 					peer.consumers.remove(&consumer_id);
 				}
 			}

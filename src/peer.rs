@@ -46,6 +46,9 @@ pub enum Client2Server {
 		rtp_params: RtpParameters,
 		is_share: bool,
 	},
+	CloseProducer {
+		id: ProducerId,
+	},
 }
 
 // sent or relayed by the server
@@ -310,9 +313,10 @@ async fn run_loop(
 					consumer_id,
 					producer_peer_id,
 				} => {
+					// this producer is closed for our consumer => delete our consumer
 					_ = room_tx
 						.send(room::Event::OnProducerClose {
-							user_id,
+							consumer_peer_id: user_id,
 							consumer_id,
 						})
 						.await;
@@ -385,6 +389,14 @@ async fn run_loop(
 									kind,
 									rtp_params,
 									is_share,
+								})
+								.await;
+						}
+						Client2Server::CloseProducer { id } => {
+							_ = room_tx
+								.send(room::Event::CloseProducer {
+									producer_peer_id: user_id,
+									id,
 								})
 								.await;
 						}
