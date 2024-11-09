@@ -5,6 +5,7 @@ use crate::{
 	uid::Uid,
 };
 use mediasoup::{
+	consumer,
 	prelude::{
 		ConsumerId, ConsumerOptions, DtlsParameters, MediaKind, ProducerId, ProducerOptions,
 		RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
@@ -64,6 +65,14 @@ pub enum Event {
 	ResumeProducer {
 		producer_peer_id: Uid,
 		id: ProducerId,
+	},
+	PauseConsumer {
+		consumer_peer_id: Uid,
+		id: ConsumerId,
+	},
+	ResumeConsumer {
+		consumer_peer_id: Uid,
+		id: ConsumerId,
 	},
 	Leave {
 		user_id: Uid,
@@ -422,6 +431,34 @@ pub async fn create_and_start_receiving(
 						}
 					} else {
 						tracing::error!("no producer {id} found for user {producer_peer_id}");
+					}
+				}
+			}
+			Event::PauseConsumer {
+				consumer_peer_id,
+				id,
+			} => {
+				if let Some(peer) = peers.get_mut(&consumer_peer_id) {
+					if let Some(consumer) = peer.consumers.get_mut(&id) {
+						if peer.joined && consumer.pause().await.is_ok() {
+							tracing::debug!("paused consumer {id} on {consumer_peer_id}");
+						}
+					} else {
+						tracing::error!("no consumer {id} found for user {consumer_peer_id}");
+					}
+				}
+			}
+			Event::ResumeConsumer {
+				consumer_peer_id,
+				id,
+			} => {
+				if let Some(peer) = peers.get_mut(&consumer_peer_id) {
+					if let Some(consumer) = peer.consumers.get_mut(&id) {
+						if peer.joined && consumer.resume().await.is_ok() {
+							tracing::debug!("resumed consumer {id} on {consumer_peer_id}");
+						}
+					} else {
+						tracing::error!("no consumer {id} found for user {consumer_peer_id}");
 					}
 				}
 			}
