@@ -84,6 +84,9 @@ pub enum Server2Client {
 	NewPeerJoined {
 		user_id: Uid,
 	},
+	PeerLeft {
+		id: Uid,
+	},
 	OnNewTransport {
 		id: TransportId,
 		ice_candidates: Vec<IceCandidate>,
@@ -132,6 +135,9 @@ pub enum PeerEvent {
 	},
 	NewPeerJoined {
 		user_id: Uid,
+	},
+	PeerLeft {
+		id: Uid,
 	},
 	OnNewConsumer {
 		producer_peer_id: Uid,
@@ -272,6 +278,9 @@ async fn run_loop(
 				PeerEvent::OnJoin { others } => {
 					tracing::debug!("{user_id} on join");
 					_ = sender.send(&Server2Client::OnJoin { others }).await;
+				}
+				PeerEvent::PeerLeft { id } => {
+					_ = sender.send(&Server2Client::PeerLeft { id }).await;
 				}
 				PeerEvent::OnNewProducer { id } => {
 					_ = sender.send(&Server2Client::OnNewProducer { id }).await;
@@ -482,11 +491,14 @@ async fn run_loop(
 					}
 				}
 				PeerEvent::Close => {
+					// called automatically when ws/tcp closes
 					// comes from ws/tcp, hence others should be notified
 					// close the sending socket to leave the we loop
 					// FIXME: notify other peers here or by the room, if joined == true
 					// FIXME: close transport?
-					drop(sender);
+					// TODO: do I need to manually drop sender?
+					// drop(sender);
+
 					_ = room_tx.send(room::Event::Leave { user_id }).await;
 					break;
 				}

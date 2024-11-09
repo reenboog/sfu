@@ -5,7 +5,6 @@ use crate::{
 	uid::Uid,
 };
 use mediasoup::{
-	consumer,
 	prelude::{
 		ConsumerId, ConsumerLayers, ConsumerOptions, DtlsParameters, MediaKind, ProducerId,
 		ProducerOptions, RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
@@ -520,19 +519,30 @@ pub async fn create_and_start_receiving(
 				consumer_peer_id,
 				consumer_id,
 			} => {
-				// FIXME: this is confusing
 				if let Some(peer) = peers.get_mut(&consumer_peer_id) {
 					peer.consumers.remove(&consumer_id);
 				}
 			}
 			Event::Leave { user_id } => {
-				peers.remove(&user_id);
+				let peer = peers.remove(&user_id);
+
+				if let Some(peer) = peer {
+					if peer.joined {
+						for (_, other) in peers.joined_excluding(user_id).iter() {
+							_ = other
+								.tx
+								.send(peer::PeerEvent::PeerLeft { id: user_id })
+								.await;
+						}
+						// no need to manually close peer's transports – drop is enough
+					}
+				}
 
 				tracing::info!("{user_id} left; {} users now connected", peers.len());
 
 				if peers.is_empty() {
+					// TODO: remove this room from the list
 					tracing::warn!("room is empty, closing");
-					// FIXME: send to serve as well
 					break;
 				}
 			}

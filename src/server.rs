@@ -11,7 +11,7 @@ use mediasoup::{
 		WebRtcServerListenInfos, WebRtcServerOptions, WebRtcTransportOptions, WorkerManager,
 	},
 	router::{Router, RouterOptions},
-	worker::{Worker, WorkerLogLevel, WorkerSettings},
+	worker::{Worker, WorkerLogLevel, WorkerLogTag, WorkerSettings},
 };
 use tokio::sync::mpsc;
 
@@ -77,12 +77,28 @@ impl Server {
 		let mut workers = Vec::new();
 
 		for worker_idx in 0..num_workers {
-			let mut worker_settings = WorkerSettings::default();
+			let mut settings = WorkerSettings::default();
 			// TODO: apply certs?
-			worker_settings.rtc_port_range = worker_min_port..=worker_max_port;
+			settings.rtc_port_range = worker_min_port..=worker_max_port;
+			settings.log_level = WorkerLogLevel::Debug;
+			settings.log_tags = vec![
+				WorkerLogTag::Info,
+				WorkerLogTag::Ice,
+				WorkerLogTag::Dtls,
+				WorkerLogTag::Rtp,
+				WorkerLogTag::Srtp,
+				WorkerLogTag::Rtcp,
+				WorkerLogTag::Rtx,
+				WorkerLogTag::Bwe,
+				WorkerLogTag::Score,
+				WorkerLogTag::Simulcast,
+				WorkerLogTag::Svc,
+				WorkerLogTag::Sctp,
+				WorkerLogTag::Message,
+			];
 
 			let worker = mngr
-				.create_worker(worker_settings)
+				.create_worker(settings)
 				.await
 				.map_err(|_| Error::Worker)?;
 
