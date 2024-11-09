@@ -61,6 +61,11 @@ pub enum Client2Server {
 	ResumeConsumer {
 		id: ConsumerId,
 	},
+	SetConsumerLayers {
+		consumer_id: ConsumerId,
+		spatial: u8,
+		temporal: u8,
+	},
 }
 
 // sent or relayed by the server
@@ -441,6 +446,20 @@ async fn run_loop(
 								.send(room::Event::ResumeConsumer {
 									consumer_peer_id: user_id,
 									id,
+								})
+								.await;
+						}
+						Client2Server::SetConsumerLayers {
+							consumer_id,
+							spatial,
+							temporal,
+						} => {
+							_ = room_tx
+								.send(room::Event::SetConsumerLayers {
+									user_id,
+									consumer_id,
+									spatial,
+									temporal,
 								})
 								.await;
 						}

@@ -7,8 +7,8 @@ use crate::{
 use mediasoup::{
 	consumer,
 	prelude::{
-		ConsumerId, ConsumerOptions, DtlsParameters, MediaKind, ProducerId, ProducerOptions,
-		RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
+		ConsumerId, ConsumerLayers, ConsumerOptions, DtlsParameters, MediaKind, ProducerId,
+		ProducerOptions, RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
 		WebRtcTransportOptions, WebRtcTransportRemoteParameters,
 	},
 	router::Router,
@@ -73,6 +73,12 @@ pub enum Event {
 	ResumeConsumer {
 		consumer_peer_id: Uid,
 		id: ConsumerId,
+	},
+	SetConsumerLayers {
+		user_id: Uid,
+		consumer_id: ConsumerId,
+		spatial: u8,
+		temporal: u8,
 	},
 	Leave {
 		user_id: Uid,
@@ -459,6 +465,27 @@ pub async fn create_and_start_receiving(
 						}
 					} else {
 						tracing::error!("no consumer {id} found for user {consumer_peer_id}");
+					}
+				}
+			}
+			Event::SetConsumerLayers {
+				user_id,
+				consumer_id,
+				spatial,
+				temporal,
+			} => {
+				if let Some(peer) = peers.get_mut(&user_id) {
+					if let Some(consumer) = peer.consumers.get_mut(&consumer_id) {
+						if peer.joined && consumer
+							.set_preferred_layers(ConsumerLayers {
+								spatial_layer: spatial,
+								temporal_layer: Some(temporal),
+							})
+							.await
+							.is_ok()
+						{
+							tracing::debug!("set layers on consumer {consumer_id} for user {user_id}; s: {spatial}, t: {temporal}");
+						}
 					}
 				}
 			}
