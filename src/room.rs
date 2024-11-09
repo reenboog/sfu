@@ -61,6 +61,10 @@ pub enum Event {
 		producer_peer_id: Uid,
 		id: ProducerId,
 	},
+	ResumeProducer {
+		producer_peer_id: Uid,
+		id: ProducerId,
+	},
 	Leave {
 		user_id: Uid,
 	},
@@ -384,7 +388,7 @@ pub async fn create_and_start_receiving(
 				id,
 			} => {
 				if let Some(peer) = peers.get_mut(&producer_peer_id) {
-					if peer.producers.remove(&id).is_some() {
+					if peer.joined && peer.producers.remove(&id).is_some() {
 						// just drop to close
 						// this will trigger on_producer_close for each of this producer's consumers
 						tracing::debug!("closed producer {id} on {producer_peer_id}");
@@ -399,8 +403,22 @@ pub async fn create_and_start_receiving(
 			} => {
 				if let Some(peer) = peers.get_mut(&producer_peer_id) {
 					if let Some(producer) = peer.producers.get_mut(&id) {
-						if producer.producer.pause().await.is_err() {
-							tracing::debug!("failed to pause producer {id} on {producer_peer_id}");
+						if peer.joined && producer.producer.pause().await.is_ok() {
+							tracing::debug!("paused producer {id} on {producer_peer_id}");
+						}
+					} else {
+						tracing::error!("no producer {id} found for user {producer_peer_id}");
+					}
+				}
+			}
+			Event::ResumeProducer {
+				producer_peer_id,
+				id,
+			} => {
+				if let Some(peer) = peers.get_mut(&producer_peer_id) {
+					if let Some(producer) = peer.producers.get_mut(&id) {
+						if peer.joined && producer.producer.resume().await.is_ok() {
+							tracing::debug!("resumed producer {id} on {producer_peer_id}");
 						}
 					} else {
 						tracing::error!("no producer {id} found for user {producer_peer_id}");
