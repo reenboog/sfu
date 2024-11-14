@@ -26,6 +26,7 @@ use tokio::sync::mpsc;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Client2Server {
 	CreateRtcTransport {
+		tag: Option<String>,
 		force_tcp: Option<bool>,
 		produce: bool,
 		consume: bool,
@@ -38,7 +39,7 @@ pub enum Client2Server {
 		transport_id: TransportId,
 	},
 	Join {
-		rtp_caps: RtpCapabilities,
+		rtp_caps: Option<RtpCapabilities>,
 	},
 	Produce {
 		transport_id: TransportId,
@@ -88,6 +89,7 @@ pub enum Server2Client {
 		id: Uid,
 	},
 	OnNewTransport {
+		tag: Option<String>,
 		id: TransportId,
 		ice_candidates: Vec<IceCandidate>,
 		ice_params: IceParameters,
@@ -168,6 +170,7 @@ pub enum PeerEvent {
 	},
 	Rcvd(Client2Server),
 	OnNewTransport {
+		tag: Option<String>,
 		id: TransportId,
 		ice_candidates: Vec<IceCandidate>,
 		ice_params: IceParameters,
@@ -312,6 +315,7 @@ async fn run_loop(
 						.await;
 				}
 				PeerEvent::OnNewTransport {
+					tag,
 					id,
 					ice_candidates,
 					ice_params,
@@ -319,6 +323,7 @@ async fn run_loop(
 				} => {
 					_ = sender
 						.send(&Server2Client::OnNewTransport {
+							tag,
 							id,
 							ice_candidates,
 							ice_params,
@@ -373,12 +378,14 @@ async fn run_loop(
 
 					match msg {
 						Client2Server::CreateRtcTransport {
+							tag,
 							force_tcp,
 							produce,
 							consume,
 						} => {
 							_ = room_tx
 								.send(room::Event::CreateRtcTransport {
+									tag,
 									user_id,
 									force_tcp,
 									produce,

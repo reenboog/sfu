@@ -1,4 +1,14 @@
 - when a call is initiated, create producers and consumers in advance?
-- introduce waiting room
+- introduce waiting rooms
 
 TODO: introduce aithentication
+TODO: remove rooms when empty
+
+producer.setMaxSendingSpatialLayer() to specify layers MANUALLY by the sender
+
+flow:
+
+/join?userId={USER_ID}
+/join?userId={USER_ID}&roomId={ROOM_ID}
+
+KnockKnock -> Welcome { rtp_caps }

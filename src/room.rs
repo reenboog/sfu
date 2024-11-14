@@ -21,7 +21,7 @@ pub enum Event {
 	},
 	Join {
 		user_id: Uid,
-		rtp_caps: RtpCapabilities,
+		rtp_caps: Option<RtpCapabilities>,
 	},
 	Produce {
 		user_id: Uid,
@@ -31,6 +31,7 @@ pub enum Event {
 		is_share: bool,
 	},
 	CreateRtcTransport {
+		tag: Option<String>,
 		user_id: Uid,
 		force_tcp: Option<bool>,
 		produce: bool,
@@ -235,7 +236,6 @@ pub async fn create_and_start_receiving(
 					tracing::info!("{user_id} is knocking; {} users now connected", peers.len());
 				}
 			}
-			// FIXME: make rtp_caps optional, unless we want to consume?
 			Event::Join { user_id, rtp_caps } => {
 				// knock-knock is required before joining
 				let others = peers.joined_excluding(user_id);
@@ -245,7 +245,7 @@ pub async fn create_and_start_receiving(
 						tracing::error!("{user_id} has already joined");
 					} else {
 						peer.joined = true;
-						peer.rtp_caps = Some(rtp_caps);
+						peer.rtp_caps = rtp_caps;
 
 						// sent rooster to the newly joined peer
 						_ = peer
@@ -322,6 +322,7 @@ pub async fn create_and_start_receiving(
 				}
 			}
 			Event::CreateRtcTransport {
+				tag,
 				user_id,
 				force_tcp,
 				produce,
@@ -357,6 +358,7 @@ pub async fn create_and_start_receiving(
 					_ = peer
 						.tx
 						.send(peer::PeerEvent::OnNewTransport {
+							tag,
 							id: tid,
 							ice_candidates,
 							ice_params,
