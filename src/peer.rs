@@ -77,6 +77,7 @@ pub enum Client2Server {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Server2Client {
 	Welcome {
+		room_id: Uid,
 		rtp_caps: RtpCapabilitiesFinalized,
 	},
 	OnJoin {
@@ -129,6 +130,7 @@ pub enum Server2Client {
 #[derive(Debug)]
 pub enum PeerEvent {
 	Welcome {
+		room_id: Uid,
 		rtp_caps: RtpCapabilitiesFinalized,
 	},
 	Denied,
@@ -154,7 +156,6 @@ pub enum PeerEvent {
 	OnNewProducer {
 		id: ProducerId,
 	},
-	// FIXME: send directly to the room?
 	OnConsumerTransportClose {
 		consumer_id: ConsumerId,
 	},
@@ -215,7 +216,6 @@ pub struct PeerProducer {
 	pub is_share: bool,
 }
 
-#[derive(Clone)]
 pub struct Peer {
 	// these are all arcs, so should be ok to clone
 	pub tx: mpsc::Sender<PeerEvent>,
@@ -269,8 +269,10 @@ async fn run_loop(
 		while let Some(event) = rx.recv().await {
 			match event {
 				// these are system events, either sent by the room or socket
-				PeerEvent::Welcome { rtp_caps } => {
-					_ = sender.send(&Server2Client::Welcome { rtp_caps }).await;
+				PeerEvent::Welcome { room_id, rtp_caps } => {
+					_ = sender
+						.send(&Server2Client::Welcome { room_id, rtp_caps })
+						.await;
 				}
 				PeerEvent::Denied => {
 					tracing::error!("access refused for {user_id}");
@@ -348,6 +350,10 @@ async fn run_loop(
 					consumer_id,
 					producer_peer_id,
 				} => {
+					tracing::warn!(
+						"peer::OnProducerClose producer peer: {producer_peer_id}, me: {user_id}"
+					);
+
 					// this producer is closed for our consumer => delete our consumer
 					_ = room_tx
 						.send(room::Event::OnProducerClose {
@@ -498,13 +504,9 @@ async fn run_loop(
 					}
 				}
 				PeerEvent::Close => {
-					// called automatically when ws/tcp closes
+					// called automatically when the wire is closed
 					// comes from ws/tcp, hence others should be notified
-					// close the sending socket to leave the we loop
-					// FIXME: notify other peers here or by the room, if joined == true
-					// FIXME: close transport?
-					// TODO: do I need to manually drop sender?
-					// drop(sender);
+					// close the sending socket to leave the ws loop
 
 					_ = room_tx.send(room::Event::Leave { user_id }).await;
 					break;

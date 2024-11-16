@@ -1,8 +1,14 @@
-- when a call is initiated, create producers and consumers in advance?
+- when a call is initiated, create producers and consumers in advance and return in Welcome?
+	KnockKnock -> Welcome { rtp_caps }
 - introduce waiting rooms
 
-TODO: introduce aithentication
+TODO: introduce authentication
 TODO: remove rooms when empty
+FIXME: send some signals directly to the room?
+
+add room_tx to Peer?
+
+associate consumer with producer_peer_id and delete all on onPeerLeft, if any left
 
 producer.setMaxSendingSpatialLayer() to specify layers MANUALLY by the sender
 
@@ -10,5 +16,3 @@ flow:
 
 /join?userId={USER_ID}
 /join?userId={USER_ID}&roomId={ROOM_ID}
-
-KnockKnock -> Welcome { rtp_caps }

@@ -84,7 +84,8 @@ async fn main() {
 	// TODO: read env
 	let server = Server::new(
 		num_cpus::get(),
-		IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+		// IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+		IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
 		"127.0.0.1",
 		40000,
 		40100,
