@@ -8,6 +8,10 @@ FIXME: send some signals directly to the room?
 
 add room_tx to Peer?
 
+add more error handling in js
+
+audio should be decoupled from peer rendering
+
 associate consumer with producer_peer_id and delete all on onPeerLeft, if any left
 
 producer.setMaxSendingSpatialLayer() to specify layers MANUALLY by the sender

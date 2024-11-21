@@ -80,6 +80,14 @@ pub enum Event {
 		spatial: u8,
 		temporal: u8,
 	},
+	UpdateConsumers {
+		user_id: Uid,
+		pause: Vec<ConsumerId>,
+		resume: Vec<ConsumerId>,
+		update_layers: Vec<ConsumerId>,
+		spatial: u8,
+		temporal: u8,
+	},
 	SetConsumerPriority {
 		user_id: Uid,
 		consumer_id: ConsumerId,
@@ -326,9 +334,15 @@ pub async fn create_and_start_receiving(
 					let ice_params = transport.ice_parameters().clone();
 					let dtls_params = transport.dtls_parameters().clone();
 
-					transport.on_ice_state_change(move |state| {
-						tracing::info!("ice state for user {user_id} is {:?} for tid {}", state, tid);
-					}).detach();
+					transport
+						.on_ice_state_change(move |state| {
+							tracing::info!(
+								"ice state for user {user_id} is {:?} for tid {}",
+								state,
+								tid
+							);
+						})
+						.detach();
 
 					// TODO: implement dtlsstatechange, trace: ui/logging mostly
 					peer.transports.insert(
@@ -339,7 +353,7 @@ pub async fn create_and_start_receiving(
 							consume,
 						},
 					);
-					
+
 					// transport.enable_trace_event(vec![Bwe]);
 
 					_ = peer
@@ -482,6 +496,55 @@ pub async fn create_and_start_receiving(
 							tracing::debug!("set layers on consumer {consumer_id} for user {user_id}; s: {spatial}, t: {temporal}");
 						}
 					}
+				}
+			}
+			Event::UpdateConsumers {
+				user_id,
+				pause,
+				resume,
+				update_layers,
+				spatial,
+				temporal,
+			} => {
+				let mut paused = Vec::new();
+				let mut resumed = Vec::new();
+
+				if let Some(peer) = peers.get(&user_id) {
+					// pause
+					for id in pause {
+						if let Some(consumer) = peer.consumers.get(&id) {
+							if consumer.pause().await.is_ok() {
+								paused.push(id);
+							}
+						}
+					}
+					// update layers
+					for id in update_layers {
+						if let Some(consumer) = peer.consumers.get(&id) {
+							if consumer.kind() == MediaKind::Video {
+								_ = consumer
+									.set_preferred_layers(ConsumerLayers {
+										spatial_layer: spatial,
+										temporal_layer: Some(temporal),
+									})
+									.await;
+							}
+						}
+					}
+
+					// resume what's visible
+					for id in resume {
+						if let Some(consumer) = peer.consumers.get(&id) {
+							if consumer.resume().await.is_ok() {
+								resumed.push(id);
+							}
+						}
+					}
+
+					_ = peer
+						.tx
+						.send(peer::PeerEvent::OnConsumersUpdated { paused, resumed })
+						.await;
 				}
 			}
 			Event::SetConsumerPriority {

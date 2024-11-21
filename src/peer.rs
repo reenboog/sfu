@@ -25,6 +25,13 @@ use tokio::sync::mpsc;
 // sent by clients
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Client2Server {
+	UpdateConsumers {
+		pause: Vec<ConsumerId>,
+		resume: Vec<ConsumerId>,
+		update_layers: Vec<ConsumerId>,
+		spatial: u8,
+		temporal: u8,
+	},
 	CreateRtcTransport {
 		tag: Option<String>,
 		force_tcp: Option<bool>,
@@ -120,6 +127,10 @@ pub enum Server2Client {
 	ConsumerResumed {
 		consumer_id: ConsumerId,
 	},
+	ConsumersUpdated {
+		paused: Vec<ConsumerId>,
+		resumed: Vec<ConsumerId>,
+	},
 	IceRestarted {
 		ice_params: IceParameters,
 	},
@@ -168,6 +179,10 @@ pub enum PeerEvent {
 	},
 	OnProducerResume {
 		consumer_id: ConsumerId,
+	},
+	OnConsumersUpdated {
+		paused: Vec<ConsumerId>,
+		resumed: Vec<ConsumerId>,
 	},
 	Rcvd(Client2Server),
 	OnNewTransport {
@@ -378,6 +393,11 @@ async fn run_loop(
 						.send(&Server2Client::ConsumerResumed { consumer_id })
 						.await;
 				}
+				PeerEvent::OnConsumersUpdated { paused, resumed } => {
+					_ = sender
+						.send(&Server2Client::ConsumersUpdated { paused, resumed })
+						.await;
+				}
 				// these come from wire
 				PeerEvent::Rcvd(msg) => {
 					tracing::debug!("received msg: {:?}", msg);
@@ -484,6 +504,24 @@ async fn run_loop(
 								.send(room::Event::SetConsumerLayers {
 									user_id,
 									consumer_id,
+									spatial,
+									temporal,
+								})
+								.await;
+						}
+						Client2Server::UpdateConsumers {
+							pause,
+							resume,
+							update_layers,
+							spatial,
+							temporal,
+						} => {
+							_ = room_tx
+								.send(room::Event::UpdateConsumers {
+									user_id,
+									pause,
+									resume,
+									update_layers,
 									spatial,
 									temporal,
 								})

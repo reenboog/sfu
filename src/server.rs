@@ -29,9 +29,6 @@ pub struct Server {
 	mngr: WorkerManager,
 	workers: Vec<(Worker, WebRtcServer)>,
 	nex_worker_idx: usize,
-
-	// FIXME: replace with WeakRoom to allow self-destruction when the last participant leaves
-	// keep event_tx instead?
 	rooms: HashMap<Uid, mpsc::Sender<room::Event>>,
 }
 
@@ -157,17 +154,6 @@ impl Server {
 
 		event_tx
 	}
-	// 	let (worker, server) = self.get_next_worker();
-
-	// 	Room::new(worker, server, Uid::generate());
-	// 	// Room::new(worker, server, Uid::generate())
-	// 	todo!()
-	// }
-
-	// pub fn run(&self) {
-	// 	tracing::info!("workers: {}", self.workers.len());
-	// 	// FIXME: room.on('close', () => rooms.delete(roomId));
-	// }
 }
 
 fn media_codecs() -> Vec<RtpCodecCapability> {
