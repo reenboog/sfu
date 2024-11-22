@@ -6,11 +6,11 @@ use std::{
 
 use mediasoup::{
 	prelude::{
-		AppData, ListenInfo, MimeTypeAudio, MimeTypeVideo, Protocol, RtcpFeedback,
-		RtpCodecCapability, RtpCodecParametersParameters, Transport, WebRtcServer,
-		WebRtcServerListenInfos, WebRtcServerOptions, WebRtcTransportOptions, WorkerManager,
+		ListenInfo, MimeTypeAudio, MimeTypeVideo, Protocol, RtcpFeedback,
+		RtpCodecCapability, RtpCodecParametersParameters, WebRtcServer,
+		WebRtcServerListenInfos, WebRtcServerOptions, WorkerManager,
 	},
-	router::{Router, RouterOptions},
+	router::RouterOptions,
 	worker::{Worker, WorkerLogLevel, WorkerLogTag, WorkerSettings},
 };
 use tokio::sync::mpsc;
@@ -93,6 +93,12 @@ impl Server {
 				WorkerLogTag::Sctp,
 				WorkerLogTag::Message,
 			];
+
+			// FIXME: use real certificates?
+			// settings.dtls_files = Some(WorkerDtlsFiles {
+			// 	certificate: todo!(),
+			// 	private_key: todo!(),
+			// });
 
 			let worker = mngr
 				.create_worker(settings)
