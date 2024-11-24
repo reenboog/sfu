@@ -23,6 +23,7 @@ use uid::Uid;
 use axum::extract::connect_info::ConnectInfo;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod audio_observer;
 mod peer;
 mod room;
 mod server;

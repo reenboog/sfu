@@ -6,9 +6,10 @@ use crate::{
 };
 use mediasoup::{
 	prelude::{
-		ConsumerId, ConsumerLayers, ConsumerOptions, DtlsParameters, MediaKind, ProducerId,
-		ProducerOptions, RtpCapabilities, RtpParameters, Transport, TransportId, WebRtcServer,
-		WebRtcTransportOptions, WebRtcTransportRemoteParameters,
+		AudioLevelObserver, AudioLevelObserverOptions, AudioLevelObserverVolume, ConsumerId,
+		ConsumerLayers, ConsumerOptions, DtlsParameters, MediaKind, ProducerId, ProducerOptions,
+		RtpCapabilities, RtpObserver, RtpObserverAddProducerOptions, RtpParameters, Transport,
+		TransportId, WebRtcServer, WebRtcTransportOptions, WebRtcTransportRemoteParameters,
 	},
 	router::Router,
 };
@@ -29,6 +30,9 @@ pub enum Event {
 		kind: MediaKind,
 		rtp_params: RtpParameters,
 		is_share: bool,
+	},
+	OnAudioLevelsChange {
+		producer: Option<AudioLevelObserverVolume>,
 	},
 	CreateRtcTransport {
 		tag: Option<String>,
@@ -85,8 +89,8 @@ pub enum Event {
 		pause: Vec<ConsumerId>,
 		resume: Vec<ConsumerId>,
 		update_layers: Vec<ConsumerId>,
-		spatial: u8,
 		temporal: u8,
+		spatial: u8,
 	},
 	SetConsumerPriority {
 		user_id: Uid,
@@ -195,6 +199,7 @@ pub async fn create_and_start_receiving(
 	router: Router,
 	rtc_server: WebRtcServer,
 	mut event_rx: mpsc::Receiver<Event>,
+	audio_observer: Option<AudioLevelObserver>,
 ) {
 	// do I need 'joined'?
 	let mut peers: HashMap<Uid, Peer> = HashMap::new();
@@ -284,6 +289,15 @@ pub async fn create_and_start_receiving(
 							if let Ok(producer) = transport.transport.produce(options).await {
 								let pid = producer.id();
 
+								// TODO: do I need to remove on producer close?
+								if kind == MediaKind::Audio {
+									if let Some(ref observer) = audio_observer {
+										_ = observer
+											.add_producer(RtpObserverAddProducerOptions::new(pid))
+											.await;
+									}
+								}
+
 								peer.producers
 									.insert(pid, PeerProducer { producer, is_share });
 
@@ -298,7 +312,6 @@ pub async fn create_and_start_receiving(
 								}
 
 								// TODO: implement score, videoorientationchange, trace
-								// TODO: if audio, implement audio lever/active speaker observers
 							} else {
 								tracing::error!("failed to create a producer for user {user_id} on transport {transport_id}");
 							}
@@ -310,6 +323,26 @@ pub async fn create_and_start_receiving(
 					}
 
 					peers.insert(user_id, peer);
+				}
+			}
+			Event::OnAudioLevelsChange { producer } => {
+				// send to everyone but producer's owner
+				// TODO: would be a great idea to have a map: { producer_id: peer_id }
+				let active_pid = peers.iter().find(|(_, p)| {
+					producer
+						.as_ref()
+						.map_or(false, |ref v| p.producers.contains_key(&v.producer.id()))
+				});
+
+				for (pid, peer) in peers.iter() {
+					if active_pid.map_or(true, |(active_pid, _)| active_pid != pid) {
+						_ = peer
+							.tx
+							.send(peer::PeerEvent::OnActiveSpeakerChange {
+								peer_id: active_pid.map_or(None, |(pid, _)| Some(pid.clone())),
+							})
+							.await;
+					}
 				}
 			}
 			Event::CreateRtcTransport {
@@ -503,8 +536,8 @@ pub async fn create_and_start_receiving(
 				pause,
 				resume,
 				update_layers,
-				spatial,
 				temporal,
+				spatial,
 			} => {
 				let mut paused = Vec::new();
 				let mut resumed = Vec::new();
@@ -519,7 +552,7 @@ pub async fn create_and_start_receiving(
 						}
 					}
 					// update layers
-					for id in update_layers {
+					for id in update_layers.iter() {
 						if let Some(consumer) = peer.consumers.get(&id) {
 							if consumer.kind() == MediaKind::Video {
 								_ = consumer
@@ -543,7 +576,7 @@ pub async fn create_and_start_receiving(
 
 					_ = peer
 						.tx
-						.send(peer::PeerEvent::OnConsumersUpdated { paused, resumed })
+						.send(peer::PeerEvent::OnConsumersUpdated { paused, resumed, relayered: update_layers, temporal, spatial })
 						.await;
 				}
 			}

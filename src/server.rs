@@ -6,23 +6,23 @@ use std::{
 
 use mediasoup::{
 	prelude::{
-		ListenInfo, MimeTypeAudio, MimeTypeVideo, Protocol, RtcpFeedback,
-		RtpCodecCapability, RtpCodecParametersParameters, WebRtcServer,
-		WebRtcServerListenInfos, WebRtcServerOptions, WorkerManager,
+		ListenInfo, MimeTypeAudio, MimeTypeVideo, Protocol, RtcpFeedback, RtpCodecCapability,
+		RtpCodecParametersParameters, WebRtcServer, WebRtcServerListenInfos, WebRtcServerOptions,
+		WorkerManager,
 	},
 	router::RouterOptions,
 	worker::{Worker, WorkerLogLevel, WorkerLogTag, WorkerSettings},
 };
 use tokio::sync::mpsc;
 
-use crate::{room, uid::Uid};
+use crate::{audio_observer, room, uid::Uid};
 
 #[derive(Debug)]
 pub enum Error {
 	Unknown,
 	Worker,
 	RtcServer,
-	RoomExists(Uid),
+	RoomAlreadyExists(Uid),
 }
 
 pub struct Server {
@@ -154,8 +154,14 @@ impl Server {
 			.await
 			.unwrap();
 
+		let audio_observer = audio_observer::create(event_tx.clone(), router.clone()).await;
+
 		tokio::spawn(room::create_and_start_receiving(
-			id, router, rtc_server, event_rx,
+			id,
+			router,
+			rtc_server,
+			event_rx,
+			audio_observer,
 		));
 
 		event_tx

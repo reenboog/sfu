@@ -11,9 +11,9 @@ use futures::{
 use mediasoup::{
 	consumer::ConsumerType,
 	prelude::{
-		Consumer, ConsumerId, DtlsParameters, IceCandidate, IceParameters, MediaKind, Producer,
-		ProducerId, RtpCapabilities, RtpCapabilitiesFinalized, RtpParameters, TransportId,
-		WebRtcTransport,
+		Consumer, ConsumerId, DtlsParameters, IceCandidate,
+		IceParameters, MediaKind, Producer, ProducerId, RtpCapabilities, RtpCapabilitiesFinalized,
+		RtpParameters, TransportId, WebRtcTransport,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -29,8 +29,8 @@ pub enum Client2Server {
 		pause: Vec<ConsumerId>,
 		resume: Vec<ConsumerId>,
 		update_layers: Vec<ConsumerId>,
-		spatial: u8,
 		temporal: u8,
+		spatial: u8,
 	},
 	CreateRtcTransport {
 		tag: Option<String>,
@@ -116,6 +116,9 @@ pub enum Server2Client {
 	OnNewProducer {
 		id: ProducerId,
 	},
+	OnActiveSpeakerChange {
+		peer_id: Option<Uid>,
+	},
 	ConsumerClosed {
 		consumer_id: ConsumerId,
 		// may be redundant
@@ -130,6 +133,9 @@ pub enum Server2Client {
 	ConsumersUpdated {
 		paused: Vec<ConsumerId>,
 		resumed: Vec<ConsumerId>,
+		relayered: Vec<ConsumerId>,
+		temporal: u8,
+		spatial: u8,
 	},
 	IceRestarted {
 		ice_params: IceParameters,
@@ -167,6 +173,9 @@ pub enum PeerEvent {
 	OnNewProducer {
 		id: ProducerId,
 	},
+	OnActiveSpeakerChange {
+		peer_id: Option<Uid>,
+	},
 	OnConsumerTransportClose {
 		consumer_id: ConsumerId,
 	},
@@ -183,6 +192,9 @@ pub enum PeerEvent {
 	OnConsumersUpdated {
 		paused: Vec<ConsumerId>,
 		resumed: Vec<ConsumerId>,
+		relayered: Vec<ConsumerId>,
+		temporal: u8,
+		spatial: u8,
 	},
 	Rcvd(Client2Server),
 	OnNewTransport {
@@ -305,6 +317,11 @@ async fn run_loop(
 				PeerEvent::OnNewProducer { id } => {
 					_ = sender.send(&Server2Client::OnNewProducer { id }).await;
 				}
+				PeerEvent::OnActiveSpeakerChange { peer_id } => {
+					_ = sender
+						.send(&Server2Client::OnActiveSpeakerChange { peer_id })
+						.await;
+				}
 				PeerEvent::NewPeerJoined { user_id } => {
 					_ = sender.send(&Server2Client::NewPeerJoined { user_id }).await;
 				}
@@ -393,9 +410,9 @@ async fn run_loop(
 						.send(&Server2Client::ConsumerResumed { consumer_id })
 						.await;
 				}
-				PeerEvent::OnConsumersUpdated { paused, resumed } => {
+				PeerEvent::OnConsumersUpdated { paused, resumed, relayered, temporal, spatial } => {
 					_ = sender
-						.send(&Server2Client::ConsumersUpdated { paused, resumed })
+						.send(&Server2Client::ConsumersUpdated { paused, resumed, relayered, temporal, spatial })
 						.await;
 				}
 				// these come from wire
@@ -513,8 +530,8 @@ async fn run_loop(
 							pause,
 							resume,
 							update_layers,
-							spatial,
 							temporal,
+							spatial,
 						} => {
 							_ = room_tx
 								.send(room::Event::UpdateConsumers {
@@ -522,8 +539,8 @@ async fn run_loop(
 									pause,
 									resume,
 									update_layers,
-									spatial,
 									temporal,
+									spatial,
 								})
 								.await;
 						}
