@@ -8,6 +8,7 @@ FIXME: send some signals directly to the room?
 add room_tx to Peer?
 
 TODO: specify effect deps properly, especially related to video layers
+TODO: do addPeers instead of addPeer
 
 add more error handling in js
 
