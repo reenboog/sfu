@@ -1,6 +1,8 @@
 use std::{
 	env,
 	net::{IpAddr, Ipv4Addr, SocketAddr},
+	path::PathBuf,
+	str::FromStr,
 	sync::Arc,
 };
 
@@ -11,8 +13,8 @@ use axum::{
 	routing::any,
 };
 use axum_extra::{headers, TypedHeader};
+use axum_server::tls_rustls::RustlsConfig;
 use futures::stream::StreamExt;
-// use peer::Peer;
 use serde::{Deserialize, Serialize};
 use server::Server;
 use tokio::sync::{mpsc, Mutex};
@@ -63,7 +65,7 @@ struct JoinReq {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), String> {
 	tracing_subscriber::registry()
 		.with(
 			tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -81,14 +83,17 @@ async fn main() {
 
 	let ws_port = 3001;
 	let use_tls = env::var("USE_TLS").unwrap_or_else(|_| "false".into()) == "true";
+	// an "external"/public ip, visible to the outside world
+	let announced_ip = env::var("ANNOUNCED_IP").unwrap_or(String::from("127.0.0.1"));
+	// usually 127.0.0.1 when tested locally, 0.0.0.0 when running on a server
+	let local_ip = env::var("LOCAL_IP").unwrap_or(String::from("127.0.0.1"));
+	let local_ip = IpAddr::V4(Ipv4Addr::from_str(&local_ip).map_err(|e| e.to_string())?);
 	let addr = SocketAddr::from(([0, 0, 0, 0], ws_port));
-	// TODO: read env
 	let server = Server::new(
 		num_cpus::get(),
-		// FIXME: this doesn't work when tested locally
-		// IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-		IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-		"127.0.0.1",
+		local_ip,
+		&announced_ip,
+		// TODO: read from env
 		40000,
 		40100,
 		44444,
@@ -103,20 +108,20 @@ async fn main() {
 	if use_tls {
 		tracing::warn!("tl enabled");
 		// let domain = env::var("DOMAIN").unwrap();
-		// let base_dir = PathBuf::from("/etc/letsencrypt/live/").join(&domain);
-		// let config = RustlsConfig::from_pem_file(
-		// 	base_dir.join("fullchain.pem"),
-		// 	base_dir.join("privkey.pem"),
-		// )
-		// .await
-		// .unwrap();
+		let base_dir = PathBuf::from("../certs/");
+		let config = RustlsConfig::from_pem_file(
+			base_dir.join("fullchain.pem"),
+			base_dir.join("privkey.pem"),
+		)
+		.await
+		.unwrap();
 
-		// println!("certs found...");
+		tracing::warn!("certs found...");
 
-		// axum_server::bind_rustls(addr, config)
-		// 	.serve(router.into_make_service())
-		// 	.await
-		// 	.unwrap();
+		axum_server::bind_rustls(addr, config)
+			.serve(router.into_make_service_with_connect_info::<SocketAddr>())
+			.await
+			.unwrap();
 	} else {
 		tracing::warn!("no tls");
 
@@ -125,6 +130,8 @@ async fn main() {
 			.await
 			.unwrap();
 	}
+
+	Ok(())
 }
 
 fn router(state: State) -> axum::Router {

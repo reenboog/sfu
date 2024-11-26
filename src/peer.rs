@@ -11,9 +11,9 @@ use futures::{
 use mediasoup::{
 	consumer::ConsumerType,
 	prelude::{
-		Consumer, ConsumerId, DtlsParameters, IceCandidate,
-		IceParameters, MediaKind, Producer, ProducerId, RtpCapabilities, RtpCapabilitiesFinalized,
-		RtpParameters, TransportId, WebRtcTransport,
+		Consumer, ConsumerId, DtlsParameters, IceCandidate, IceParameters, MediaKind, Producer,
+		ProducerId, RtpCapabilities, RtpCapabilitiesFinalized, RtpParameters, TransportId,
+		WebRtcTransport,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -410,9 +410,21 @@ async fn run_loop(
 						.send(&Server2Client::ConsumerResumed { consumer_id })
 						.await;
 				}
-				PeerEvent::OnConsumersUpdated { paused, resumed, relayered, temporal, spatial } => {
+				PeerEvent::OnConsumersUpdated {
+					paused,
+					resumed,
+					relayered,
+					temporal,
+					spatial,
+				} => {
 					_ = sender
-						.send(&Server2Client::ConsumersUpdated { paused, resumed, relayered, temporal, spatial })
+						.send(&Server2Client::ConsumersUpdated {
+							paused,
+							resumed,
+							relayered,
+							temporal,
+							spatial,
+						})
 						.await;
 				}
 				// these come from wire

@@ -576,7 +576,13 @@ pub async fn create_and_start_receiving(
 
 					_ = peer
 						.tx
-						.send(peer::PeerEvent::OnConsumersUpdated { paused, resumed, relayered: update_layers, temporal, spatial })
+						.send(peer::PeerEvent::OnConsumersUpdated {
+							paused,
+							resumed,
+							relayered: update_layers,
+							temporal,
+							spatial,
+						})
 						.await;
 				}
 			}

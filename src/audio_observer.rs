@@ -10,10 +10,7 @@ pub async fn create(room_tx: Sender<room::Event>, router: Router) -> Option<Audi
 	let mut options = AudioLevelObserverOptions::default();
 	// just an arbitrary values, in ms; works fine
 	options.interval = 500;
-	let observer = router
-		.create_audio_level_observer(options)
-		.await
-		.ok();
+	let observer = router.create_audio_level_observer(options).await.ok();
 
 	let room_tx_on_volume = room_tx.clone();
 	if let Some(ref observer) = observer {
