@@ -21,5 +21,7 @@ Use Cases
 
 flow:
 
+```
 /join?userId={USER_ID}
 /join?userId={USER_ID}&roomId={ROOM_ID}
+```
